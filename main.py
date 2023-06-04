@@ -36,7 +36,7 @@ async def add_reminder(message: types.Message, state: FSMContext):
         await message.reply('Enter your reminder text:')
         await Reminder.REMINDER_TEXT.set()
 
-        await state.update_data(user_id=user_id)  # Store user_id in the state data
+        await state.update_data(user_id=user_id)
 
     except Exception as e:
         await message.reply('Error adding the reminder.')

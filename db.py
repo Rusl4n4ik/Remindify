@@ -3,8 +3,6 @@ from sqlite3 import Date
 from sqlalchemy import create_engine, Column, Integer, String, DateTime
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-from datetime import datetime
-import sqlite3
 
 DATABASE_NAME = 'remindify.sqlite'
 
