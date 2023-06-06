@@ -1,6 +1,6 @@
 from sqlite3 import Date
 
-from sqlalchemy import create_engine, Column, Integer, String, DateTime
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 
@@ -58,6 +58,32 @@ def __init__(self, user_id, text, date):
     self.user_id = user_id
     self.text = text
     self.date = date
+
+
+def get_user_reminders(user_id):
+    session = Session()
+    reminders = session.query(Reminder).filter(Reminder.user_id == user_id).all()
+    return reminders
+
+
+def get_reminder_by_id(reminder_id):
+    session = Session()
+    reminder = session.query(Reminder).get(reminder_id)
+    return reminder
+
+
+def update_reminder_text(reminder_id, new_text):
+    reminder = session.query(Reminder).filter(Reminder.id == reminder_id).first()
+    if reminder:
+        reminder.text = new_text
+        session.commit()
+
+
+def delete_reminder(reminder_id):
+    reminder = session.query(Reminder).filter(Reminder.id == reminder_id).first()
+    if reminder:
+        session.delete(reminder)
+        session.commit()
 
 
 if __name__ == '__main__':

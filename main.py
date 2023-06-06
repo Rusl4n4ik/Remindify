@@ -1,4 +1,7 @@
+import sqlite3
 import pytz
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from sqlalchemy.engine import cursor
 from timezonefinder import TimezoneFinder
 from aiogram import Bot, Dispatcher, executor, types
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
@@ -18,6 +21,8 @@ API_TOKEN = '6197051771:AAE3dlqsUL2mp5RZ-9nzsT5qqTga1Jqqx5U'
 bot = Bot(token=API_TOKEN, parse_mode=types.ParseMode.HTML)
 dp = Dispatcher(bot, storage=MemoryStorage())
 tmp = {}
+conn = sqlite3.connect('remindify.sqlite')
+cursor = conn.cursor()
 
 
 @dp.message_handler(commands=['start'])
@@ -90,6 +95,125 @@ async def schedule_reminder_job(user_id: int, reminder_text: str, time_differenc
     # Schedule the reminder job with the specified time difference
     loop = asyncio.get_running_loop()
     loop.call_later(time_difference, asyncio.create_task, send_reminder())
+
+
+async def schedule_reminder_job(user_id: int, reminder_text: str, time_difference: int):
+    async def send_reminder():
+        await bot.send_message(user_id, f'Reminder: {reminder_text}')
+
+    # Schedule the reminder job with the specified time difference
+    loop = asyncio.get_running_loop()
+    loop.call_later(time_difference, asyncio.create_task, send_reminder())
+
+
+@dp.message_handler(text="⟡View reminders⟡")
+async def view_reminders(message: types.Message):
+    user_id = message.from_user.id
+    reminders = db.get_user_reminders(user_id)
+
+    if not reminders:
+        await message.reply('You have no reminders.')
+    else:
+        keyboard = types.InlineKeyboardMarkup()
+        for reminder in reminders:
+            button_text = f'{reminder.text} ({reminder.date.strftime("%d.%m.%Y %H:%M")})'
+            button = InlineKeyboardButton(text=button_text, callback_data=f'reminder:{reminder.id}')
+            keyboard.add(button)
+
+        await message.reply('Here are your reminders:', reply_markup=keyboard)
+
+
+@dp.callback_query_handler(lambda c: c.data.startswith('reminder:'))
+async def handle_reminder_callback(callback_query: types.CallbackQuery):
+    reminder_id = int(callback_query.data.split(':')[1])
+
+    reminder = db.get_reminder_by_id(reminder_id)
+
+    if reminder:
+        reminder_text = reminder.text
+        reminder_date = reminder.date.strftime('%d.%m.%Y %H:%M')
+        await callback_query.answer(f'Reminder: {reminder_text}\nDate: {reminder_date}')
+    else:
+        await callback_query.answer('Reminder not found.')
+
+    await callback_query.message.delete()
+
+
+# @dp.callback_query_handler(lambda c: c.data.startswith('reminder:'))
+# async def handle_reminder_callback(callback_query: types.CallbackQuery):
+#     reminder_id = int(callback_query.data.split(':')[1])
+#
+#     # Получаем информацию о выбранной заметке из базы данных
+#     reminder = db.get_reminder_by_id(reminder_id)
+#
+#     if reminder:
+#         reminder_text = reminder.text
+#         reminder_date = reminder.date.strftime('%d.%m.%Y %H:%M')
+#
+#         keyboard = InlineKeyboardMarkup(row_width=2)
+#         edit_button = InlineKeyboardButton(text='Edit', callback_data=f'edit:{reminder_id}')
+#         delete_button = InlineKeyboardButton(text='Delete', callback_data=f'delete:{reminder_id}')
+#         keyboard.add(edit_button, delete_button)
+#
+#         await callback_query.answer(f'Reminder: {reminder_text}\nDate: {reminder_date}', show_alert=True)
+#         await callback_query.message.edit_reply_markup(reply_markup=keyboard)
+#     else:
+#         await callback_query.answer('Reminder not found.')
+#
+#
+# @dp.callback_query_handler(lambda c: c.data.startswith('edit:'))
+# async def handle_edit_callback(callback_query: types.CallbackQuery):
+#     reminder_id = int(callback_query.data.split(':')[1])
+#
+#     reminder = db.get_reminder_by_id(reminder_id)
+#
+#     if reminder:
+#         await Reminder.UPDATE_TEXT.set()
+#         await Reminder.UPDATE_ID.set()
+#
+#         await callback_query.message.answer('Enter the new reminder text:')
+#     else:
+#         await callback_query.answer('Reminder not found.')
+#
+#
+# @dp.message_handler(state=Reminder.UPDATE_TEXT)
+# async def update_text(message: types.Message, state: FSMContext):
+#     try:
+#         reminder_id = (await state.get_data()).get('reminder_id')
+#         new_text = message.text
+#
+#         db.update_reminder_text(reminder_id, new_text)
+#
+#         await message.answer('Reminder text updated successfully.')
+#         await state.finish()
+#
+#     except Exception as e:
+#         await message.answer('Error updating reminder text.')
+#
+#
+# @dp.callback_query_handler(lambda c: c.data.startswith('delete:'))
+# async def handle_delete_callback(callback_query: types.CallbackQuery):
+#     reminder_id = int(callback_query.data.split(':')[1])
+#
+#     await Reminder.DELETE_CONFIRMATION.set()
+#     await callback_query.answer('Are you sure you want to delete this reminder?')
+#
+#
+# @dp.callback_query_handler(state=Reminder.DELETE_CONFIRMATION)
+# async def delete_reminder_callback(callback_query: types.CallbackQuery, state: FSMContext):
+#     if callback_query.data.lower() == 'yes':
+#         reminder_id = (await state.get_data()).get('reminder_id')
+#
+#         db.delete_reminder(reminder_id)
+#
+#         await callback_query.answer('Reminder deleted successfully.')
+#         await callback_query.message.delete()
+#
+#     else:
+#         await callback_query.answer('Reminder deletion cancelled.')
+#
+#     await state.finish()
+
 
 if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True)
