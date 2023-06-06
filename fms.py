@@ -1,9 +1,9 @@
 from aiogram.dispatcher.filters.state import StatesGroup, State
 
 
-class Reminder(StatesGroup):
+class Remindify(StatesGroup):
     SET_NOTIFICATION_DATETIME = State()
     REMINDER_TEXT = State()
-    DELETE_CONFIRMATION = State()
-    UPDATE_TEXT = State()
-    UPDATE_ID = State()
+    SET_TIME = State()
+    SET_DAY = State()
+    SET_MONTH = State()

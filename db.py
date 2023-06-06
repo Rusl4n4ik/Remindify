@@ -72,19 +72,5 @@ def get_reminder_by_id(reminder_id):
     return reminder
 
 
-def update_reminder_text(reminder_id, new_text):
-    reminder = session.query(Reminder).filter(Reminder.id == reminder_id).first()
-    if reminder:
-        reminder.text = new_text
-        session.commit()
-
-
-def delete_reminder(reminder_id):
-    reminder = session.query(Reminder).filter(Reminder.id == reminder_id).first()
-    if reminder:
-        session.delete(reminder)
-        session.commit()
-
-
 if __name__ == '__main__':
     create_db()
