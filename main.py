@@ -23,13 +23,6 @@ conn = sqlite3.connect('remindify.sqlite')
 cursor = conn.cursor()
 
 
-class Reminder:
-    def __init__(self, user_id, text, date):
-        self.user_id = user_id
-        self.text = text
-        self.date = date
-
-
 @dp.message_handler(commands=['start'])
 async def start_handler(message: types.Message):
     await message.answer("Here we go!", reply_markup=menu)
@@ -151,18 +144,32 @@ async def set_time(message: types.Message, state: FSMContext):
         reminder_date = datetime(now.year, selected_month, selected_day, selected_hour, selected_minute)
 
         # Create a Reminder instance with the date set
-        reminder = Reminder(user_id=data['user_id'], text=reminder_text, date=reminder_date)
+        reminder = db.Reminder(user_id=data['user_id'], text=reminder_text, date=reminder_date)
 
-        # Save the reminder to the SQLite database
-        cursor.execute("INSERT INTO reminders (user_id, text, date) VALUES (?, ?, ?)",
-                       (reminder.user_id, reminder.text, reminder.date))
-        conn.commit()
+        # Save the reminder to the database
+        db.session.add(reminder)
+        db.session.commit()
+
+        # Calculate the time difference between the reminder date and current time
+        time_difference = (reminder_date - datetime.now()).total_seconds()
+
+        # Schedule the reminder job
+        await schedule_reminder_job(data['user_id'], reminder_text, time_difference)
 
         await message.reply('Reminder created successfully!')
         await state.finish()  # Finish the state and reset the data
 
     except ValueError:
         await message.reply('Invalid time format. Please enter the time in the format HH:MM (24-hour format).')
+
+
+async def schedule_reminder_job(user_id: int, reminder_text: str, time_difference: int):
+    async def send_reminder():
+        await bot.send_message(user_id, f'Reminder: {reminder_text}')
+
+    # Schedule the reminder job with the specified time difference
+    loop = asyncio.get_running_loop()
+    loop.call_later(time_difference, asyncio.create_task, send_reminder())
 
 
 @dp.message_handler(text="⟡View reminders⟡")
