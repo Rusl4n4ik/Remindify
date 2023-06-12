@@ -61,12 +61,15 @@ async def enter_reminder_text(message: types.Message, state: FSMContext):
 
 
 def get_month_menu():
+    current_month = datetime.now().month  # Get the current month
     keyboard = InlineKeyboardMarkup(row_width=4)
 
-    # Add the month buttons to the menu
-    for month in range(1, 13):
-        button = InlineKeyboardButton(text=calendar.month_name[month], callback_data=f'month:{month}')
-        keyboard.insert(button)
+    # Add the month buttons to the menu up to December
+    for month in range(current_month, current_month + 12):
+        month_number = (month - 1) % 12 + 1  # Wrap around to handle months > 12
+        if month_number <= 12:
+            button = InlineKeyboardButton(text=calendar.month_name[month_number], callback_data=f'month:{month_number}')
+            keyboard.insert(button)
 
     return keyboard
 
