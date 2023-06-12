@@ -72,5 +72,12 @@ def get_reminder_by_id(reminder_id):
     return reminder
 
 
+def delete_reminder(reminder_id):
+    reminder = session.query(Reminder).filter_by(id=reminder_id).first()
+    if reminder:
+        session.delete(reminder)
+        session.commit()
+
+
 if __name__ == '__main__':
     create_db()

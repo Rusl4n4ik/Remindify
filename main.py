@@ -71,20 +71,6 @@ def get_month_menu():
     return keyboard
 
 
-@dp.callback_query_handler(lambda c: c.data.startswith('month:'), state=Remindify.REMINDER_TEXT)
-async def set_month(callback_query: types.CallbackQuery, state: FSMContext):
-    month = int(callback_query.data.split(':')[1])
-
-    # Store the selected month in the state
-    await state.update_data(month=month)
-    await Remindify.SET_DAY.set()  # Transition to the SET_DAY state
-
-    await bot.answer_callback_query(callback_query.id, f'Selected month: {calendar.month_name[month]}')
-
-    # Get the selected month and display the day menu
-    await bot.send_message(callback_query.from_user.id, 'Please select the day:', reply_markup=get_day_menu())
-
-
 def get_day_menu():
     keyboard = InlineKeyboardMarkup(row_width=7)
 
@@ -96,71 +82,111 @@ def get_day_menu():
     return keyboard
 
 
+def get_hour_menu():
+    keyboard = InlineKeyboardMarkup(row_width=6)
+
+    # Add the hour buttons to the menu
+    for hour in range(0, 24):
+        button = InlineKeyboardButton(text=str(hour), callback_data=f'hour:{hour}')
+        keyboard.insert(button)
+
+    return keyboard
+
+
+def get_minute_menu():
+    keyboard = InlineKeyboardMarkup(row_width=6)
+
+    # Add the minute buttons to the menu
+    for minute in range(0, 61, 5):
+        button = InlineKeyboardButton(text=str(minute), callback_data=f'minute:{minute}')
+        keyboard.insert(button)
+
+    return keyboard
+
+
+@dp.callback_query_handler(lambda c: c.data.startswith('month:'), state=Remindify.REMINDER_TEXT)
+async def set_month(callback_query: types.CallbackQuery, state: FSMContext):
+    month = int(callback_query.data.split(':')[1])
+
+    await state.update_data(month=month)
+    await Remindify.SET_DAY.set()
+
+    await bot.answer_callback_query(callback_query.id, f'Selected month: {calendar.month_name[month]}')
+
+    # Get the selected month and display the day menu
+    await bot.send_message(callback_query.from_user.id, 'Please select the day:', reply_markup=get_day_menu())
+
+    # Update the original message to remove the month menu
+    await callback_query.message.edit_reply_markup()
+    await callback_query.message.delete()
+
+
 @dp.callback_query_handler(lambda c: c.data.startswith('day:'), state=Remindify.SET_DAY)
 async def set_day(callback_query: types.CallbackQuery, state: FSMContext):
     day = int(callback_query.data.split(':')[1])
 
-    # Store the selected day in the state
     await state.update_data(day=day)
-    await Remindify.SET_TIME.set()  # Transition to the SET_TIME state
+    await Remindify.SET_HOUR.set()
 
     await bot.answer_callback_query(callback_query.id, f'Selected day: {day}')
 
-    # Get the selected day and display the time input prompt
-    await bot.send_message(callback_query.from_user.id, 'Please enter the reminder time in the format HH:MM (24-hour format):')
+    # Get the selected day and display the hour menu
+    await bot.send_message(callback_query.from_user.id, 'Please select the hour:', reply_markup=get_hour_menu())
+
+    # Update the original message to remove the day menu
+    await callback_query.message.edit_reply_markup()
+    await callback_query.message.delete()
 
 
-@dp.message_handler(state=Remindify.SET_TIME)
-async def set_time(message: types.Message, state: FSMContext):
-    # Retrieve the stored data from the state
+@dp.callback_query_handler(lambda c: c.data.startswith('hour:'), state=Remindify.SET_HOUR)
+async def set_hour(callback_query: types.CallbackQuery, state: FSMContext):
+    hour = int(callback_query.data.split(':')[1])
+
+    await state.update_data(hour=hour)
+    await Remindify.SET_MINUTE.set()
+
+    await bot.answer_callback_query(callback_query.id, f'Selected hour: {hour}')
+
+    # Get the selected hour and display the minute menu
+    await bot.send_message(callback_query.from_user.id, 'Please select the minute:', reply_markup=get_minute_menu())
+
+    # Update the original message to remove the hour menu
+    await callback_query.message.edit_reply_markup()
+    await callback_query.message.delete()
+
+
+@dp.callback_query_handler(lambda c: c.data.startswith('minute:'), state=Remindify.SET_MINUTE)
+async def set_minute(callback_query: types.CallbackQuery, state: FSMContext):
+    minute = int(callback_query.data.split(':')[1])
+
+    await state.update_data(minute=minute)
+
     data = await state.get_data()
-    month = data.get('month')
-    day = data.get('day')
+    reminder_text = data.get('reminder_text')
+    selected_month = data.get('month')
+    selected_day = data.get('day')
+    selected_hour = data.get('hour')
+    selected_minute = data.get('minute')
+    # Create a datetime object for the reminder date
+    now = datetime.now()
+    reminder_date = datetime(now.year, selected_month, selected_day, selected_hour, selected_minute)
 
-    try:
-        # Parse the user input for time
-        time_parts = message.text.strip().split(':')
-        hour = int(time_parts[0])
-        minute = int(time_parts[1])
+    # Create a Reminder instance with the date set
+    reminder = db.Reminder(user_id=data['user_id'], text=reminder_text, date=reminder_date)
 
-        # Validate the time values
-        if not (0 <= hour < 24) or not (0 <= minute < 60):
-            raise ValueError('Invalid time format.')
+    # Save the reminder to the database
+    db.session.add(reminder)
+    db.session.commit()
 
-        # Store the selected time in the state
-        await state.update_data(hour=hour, minute=minute)
-        await Remindify.SET_MONTH.set()  # Transition back to the SET_MONTH state to start a new reminder
+    # Calculate the time difference between the reminder date and current time
+    time_difference = (reminder_date - datetime.now()).total_seconds()
 
-        # Retrieve all the stored data
-        data = await state.get_data()
-        reminder_text = data.get('reminder_text')
-        selected_month = data.get('month')
-        selected_day = data.get('day')
-        selected_hour = data.get('hour')
-        selected_minute = data.get('minute')
+    # Schedule the reminder job
+    await schedule_reminder_job(data['user_id'], reminder_text, time_difference)
 
-        # Create a datetime object for the reminder date
-        now = datetime.now()
-        reminder_date = datetime(now.year, selected_month, selected_day, selected_hour, selected_minute)
-
-        # Create a Reminder instance with the date set
-        reminder = db.Reminder(user_id=data['user_id'], text=reminder_text, date=reminder_date)
-
-        # Save the reminder to the database
-        db.session.add(reminder)
-        db.session.commit()
-
-        # Calculate the time difference between the reminder date and current time
-        time_difference = (reminder_date - datetime.now()).total_seconds()
-
-        # Schedule the reminder job
-        await schedule_reminder_job(data['user_id'], reminder_text, time_difference)
-
-        await message.reply('Reminder created successfully!')
-        await state.finish()  # Finish the state and reset the data
-
-    except ValueError:
-        await message.reply('Invalid time format. Please enter the time in the format HH:MM (24-hour format).')
+    await bot.send_message(callback_query.from_user.id, 'Reminder created successfully!')
+    await state.finish()  # Finish the state and reset the data
+    await callback_query.message.delete()
 
 
 async def schedule_reminder_job(user_id: int, reminder_text: str, time_difference: int):
@@ -169,7 +195,7 @@ async def schedule_reminder_job(user_id: int, reminder_text: str, time_differenc
 
     # Schedule the reminder job with the specified time difference
     loop = asyncio.get_running_loop()
-    loop.call_later(time_difference, asyncio.create_task, send_reminder())
+    loop.call_later(time_difference, asyncio.ensure_future, send_reminder())
 
 
 @dp.message_handler(text="⟡View reminders⟡")
@@ -198,12 +224,38 @@ async def handle_reminder_callback(callback_query: types.CallbackQuery):
     if reminder:
         reminder_text = reminder.text
         reminder_date = reminder.date.strftime('%d.%m.%Y %H:%M')
-        await callback_query.answer(f'Reminder: {reminder_text}\nDate: {reminder_date}')
+
+        db.delete_reminder(reminder_id)  # Удаление напоминания из базы данных
+
+        # Отправка уведомления о удалении напоминания
+        await callback_query.answer(f'Reminder deleted:\n{reminder_text}\nDate: {reminder_date}')
+
+        # Обновление меню со списком напоминаний
+        user_id = callback_query.from_user.id
+        reminders = db.get_user_reminders(user_id)
+
+        if not reminders:
+            await bot.edit_message_text(
+                chat_id=user_id,
+                message_id=callback_query.message.message_id,
+                text='You have no reminders.',
+                reply_markup=None  # Убрать клавиатуру из сообщения
+            )
+        else:
+            keyboard = types.InlineKeyboardMarkup()
+            for reminder in reminders:
+                button_text = f'{reminder.text} ({reminder.date.strftime("%d.%m.%Y %H:%M")})'
+                button = InlineKeyboardButton(text=button_text, callback_data=f'reminder:{reminder.id}')
+                keyboard.add(button)
+
+            await bot.edit_message_text(
+                chat_id=user_id,
+                message_id=callback_query.message.message_id,
+                text='Here are your reminders:',
+                reply_markup=keyboard
+            )
     else:
         await callback_query.answer('Reminder not found.')
-
-    await callback_query.message.delete()
-
 
 if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True)
