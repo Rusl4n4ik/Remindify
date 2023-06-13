@@ -1,12 +1,18 @@
 import asyncio
 import calendar
 import sqlite3
+import googletrans
+from PIL import Image, ImageDraw, ImageFont
+import io
+from langdetect import detect
+import aiocron
+import pytz
 from datetime import datetime
 from aiogram import Bot, Dispatcher, executor, types
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters import state
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, message
 from sqlalchemy.orm import session, Session
 
 
@@ -100,7 +106,7 @@ def get_minute_menu():
     keyboard = InlineKeyboardMarkup(row_width=6)
 
     # Add the minute buttons to the menu
-    for minute in range(0, 61, 5):
+    for minute in range(0, 60):
         button = InlineKeyboardButton(text=str(minute), callback_data=f'minute:{minute}')
         keyboard.insert(button)
 
@@ -194,9 +200,41 @@ async def set_minute(callback_query: types.CallbackQuery, state: FSMContext):
 
 async def schedule_reminder_job(user_id: int, reminder_text: str, time_difference: int):
     async def send_reminder():
-        await bot.send_message(user_id, f'Reminder: {reminder_text}')
+        background_image_path = "Remindify (1).png"
+        background_image = Image.open(background_image_path)
+        image_width, image_height = background_image.size
 
-    # Schedule the reminder job with the specified time difference
+        max_text_width = int(image_width * 0.8)
+        max_text_height = int(image_height * 0.8)
+
+        font_path = "ofont.ru_SonyEricssonLogo.ttf"
+        max_font_size = 120  # Максимальный размер шрифта
+
+        # Уменьшение размера шрифта до тех пор, пока текст не помещается в заданные размеры
+        font_size = max_font_size
+        font = ImageFont.truetype(font_path, font_size)
+        text_width, text_height = font.getsize(reminder_text)
+        while text_width > max_text_width or text_height > max_text_height:
+            font_size -= 5
+            font = ImageFont.truetype(font_path, font_size)
+            text_width, text_height = font.getsize(reminder_text)
+
+        # Центрирование текста
+        text_position = ((image_width - text_width) // 2, (image_height - text_height) // 2 + int(image_height * 0.1))
+        text_opacity = 150
+        text_color = (122, 122, 122)
+
+        image = Image.new("RGB", (image_width, image_height))
+        image.paste(background_image, (0, 0))
+        draw = ImageDraw.Draw(image)
+        draw.text(text_position, reminder_text, font=font, fill=text_color)
+
+        image_stream = io.BytesIO()
+        image.save(image_stream, format="JPEG")
+        image_stream.seek(0)
+
+        await bot.send_photo(chat_id=user_id, photo=image_stream, caption=f"Reminder: {reminder_text}")
+
     loop = asyncio.get_running_loop()
     loop.call_later(time_difference, asyncio.ensure_future, send_reminder())
 
