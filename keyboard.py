@@ -5,7 +5,7 @@ from aiogram.types import ReplyKeyboardRemove, \
 
 
 menu = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
-menu_btn = ['⟡Add reminder⟡','⟡View reminders⟡']
+menu_btn = ['⟡ Add reminder 📝 ⟡','⟡ View reminders 🔎 ⟡']
 menu.add(*menu_btn)
 
 persistent_menu = [
