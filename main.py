@@ -19,7 +19,7 @@ import aiogram.utils.markdown as fmt
 
 import db
 from fms import Remindify
-from keyboard import menu
+from keyboard import menu, guide_text
 
 API_TOKEN = '6197051771:AAE3dlqsUL2mp5RZ-9nzsT5qqTga1Jqqx5U'
 
@@ -38,6 +38,11 @@ async def start_handler(message: types.Message):
         await message.answer("Welcome to REMINDIFY 👻" + fmt.hbold(message.from_user.username) + " .Never miss an important task or event again. With Remindify, you can easily set reminders and stay organized. Whether it's a meeting, a deadline, or a personal task, Remindify has got you covered. Simply tell us what you need to remember, and we'll make sure to notify you at the right time. Stay on top of your schedule with Remindify!", reply_markup=menu)
     else:
         await message.answer("Welcome back! Glad to see you back at " + fmt.hbold("Remindify ⏰"), reply_markup=menu)
+
+
+@dp.message_handler(text='⟡ Remindify Bot User Guide ⟡')
+async def guide(message: types.Message):
+    await message.answer(guide_text)
 
 
 @dp.message_handler(text="⟡ Add reminder 📝 ⟡")
@@ -61,7 +66,7 @@ async def enter_reminder_text(message: types.Message, state: FSMContext):
         user_id = data.get('user_id')  # Retrieve the user_id from the state data
         reminder_text = message.text
 
-        await message.reply('Please select the ' + fmt.hbold("month:"), reply_markup=get_month_menu())
+        await message.reply('Please select the ' + fmt.hbold("month🗓️:"), reply_markup=get_month_menu())
 
         await state.update_data(reminder_text=reminder_text)  # Store reminder_text in the state data
 
@@ -126,7 +131,7 @@ async def set_month(callback_query: types.CallbackQuery, state: FSMContext):
     await bot.answer_callback_query(callback_query.id, f'Selected month: {calendar.month_name[month]}')
 
     # Get the selected month and display the day menu
-    await bot.send_message(callback_query.from_user.id, 'Please select the ' + fmt.hbold("day:"), reply_markup=get_day_menu())
+    await bot.send_message(callback_query.from_user.id, 'Please select the ' + fmt.hbold("day🗓️:"), reply_markup=get_day_menu())
 
     # Update the original message to remove the month menu
     await callback_query.message.edit_reply_markup()
@@ -143,7 +148,7 @@ async def set_day(callback_query: types.CallbackQuery, state: FSMContext):
     await bot.answer_callback_query(callback_query.id, f'Selected day: {day}')
 
     # Get the selected day and display the hour menu
-    await bot.send_message(callback_query.from_user.id, 'Please select the ' + fmt.hbold("hour:"), reply_markup=get_hour_menu())
+    await bot.send_message(callback_query.from_user.id, 'Please select the ' + fmt.hbold("hour⏰:"), reply_markup=get_hour_menu())
 
     # Update the original message to remove the day menu
     await callback_query.message.edit_reply_markup()
@@ -160,7 +165,7 @@ async def set_hour(callback_query: types.CallbackQuery, state: FSMContext):
     await bot.answer_callback_query(callback_query.id, f'Selected hour: {hour}')
 
     # Get the selected hour and display the minute menu
-    await bot.send_message(callback_query.from_user.id, 'Please select the ' + fmt.hbold("minute:"), reply_markup=get_minute_menu())
+    await bot.send_message(callback_query.from_user.id, 'Please select the ' + fmt.hbold("minute⏰:"), reply_markup=get_minute_menu())
 
     # Update the original message to remove the hour menu
     await callback_query.message.edit_reply_markup()
@@ -210,11 +215,15 @@ async def schedule_reminder_job(user_id: int, reminder_text: str, time_differenc
 
         font_size = max_font_size
         font = ImageFont.truetype(font_path, font_size)
-        text_width, text_height = font.getsize(reminder_text)
+        text_bbox = font.getbbox(reminder_text)
+        text_width = text_bbox[2] - text_bbox[0]
+        text_height = text_bbox[3] - text_bbox[1]
         while text_width > max_text_width or text_height > max_text_height:
             font_size -= 5
             font = ImageFont.truetype(font_path, font_size)
-            text_width, text_height = font.getsize(reminder_text)
+            text_bbox = font.getbbox(reminder_text)
+            text_width = text_bbox[2] - text_bbox[0]
+            text_height = text_bbox[3] - text_bbox[1]
 
 
         text_position = ((image_width - text_width) // 2, (image_height - text_height) // 2 + int(image_height * 0.1))
