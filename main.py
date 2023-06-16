@@ -1,33 +1,28 @@
 import asyncio
 import calendar
-import sqlite3
-import googletrans
-from PIL import Image, ImageDraw, ImageFont
 import io
-from langdetect import detect
-import aiocron
-import pytz
+import sqlite3
+import aiogram.utils.markdown as fmt
+import db
+import logging
+
 from datetime import datetime
+from PIL import Image, ImageDraw, ImageFont
 from aiogram import Bot, Dispatcher, executor, types
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher import FSMContext
-from aiogram.dispatcher.filters import state
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, message
-from sqlalchemy.orm import session, Session
-import aiogram.utils.markdown as fmt
-
-
-import db
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from fms import Remindify
 from keyboard import menu, guide_text
 
-API_TOKEN = '6197051771:AAE3dlqsUL2mp5RZ-9nzsT5qqTga1Jqqx5U'
 
+API_TOKEN = '6197051771:AAE3dlqsUL2mp5RZ-9nzsT5qqTga1Jqqx5U'
 bot = Bot(token=API_TOKEN, parse_mode=types.ParseMode.HTML)
 dp = Dispatcher(bot, storage=MemoryStorage())
 tmp = {}
 conn = sqlite3.connect('remindify.sqlite')
 cursor = conn.cursor()
+logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
 
 
 @dp.message_handler(commands=['start'])
@@ -40,6 +35,14 @@ async def start_handler(message: types.Message):
         await message.answer("Welcome back! Glad to see you back at " + fmt.hbold("Remindify ⏰"), reply_markup=menu)
 
 
+async def cancel_handler(message: types.Message, state: FSMContext):
+    await state.finish()
+    await message.answer("Operation canceled.")
+
+# Register the cancel handler
+dp.register_message_handler(cancel_handler, commands=['cancel'], state='*')
+
+
 @dp.message_handler(text='⟡ Remindify Bot User Guide ⟡')
 async def guide(message: types.Message):
     await message.answer(guide_text)
@@ -49,7 +52,6 @@ async def guide(message: types.Message):
 async def add_reminder_command(message: types.Message, state: FSMContext):
     try:
         user_id = message.from_user.id
-
         await message.reply('Enter your reminder text 📲:')
         await Remindify.REMINDER_TEXT.set()
 
@@ -88,11 +90,17 @@ def get_month_menu():
     return keyboard
 
 
-def get_day_menu():
+def get_day_menu(selected_month):
+    current_month = datetime.now().month
+    current_day = datetime.now().day
+
     keyboard = InlineKeyboardMarkup(row_width=7)
 
-    # Add the day buttons to the menu
-    for day in range(1, 32):
+    # Determine the maximum number of days for the selected month
+    max_days = calendar.monthrange(datetime.now().year, selected_month)[1]
+
+    # Add the day buttons to the menu up to the maximum number of days
+    for day in range(current_day, max_days + 1):
         button = InlineKeyboardButton(text=str(day), callback_data=f'day:{day}')
         keyboard.insert(button)
 
@@ -100,10 +108,12 @@ def get_day_menu():
 
 
 def get_hour_menu():
+    current_hour = datetime.now().hour
+
     keyboard = InlineKeyboardMarkup(row_width=6)
 
-    # Add the hour buttons to the menu
-    for hour in range(0, 24):
+    # Add the hour buttons to the menu starting from the current hour
+    for hour in range(current_hour, 24):
         button = InlineKeyboardButton(text=str(hour), callback_data=f'hour:{hour}')
         keyboard.insert(button)
 
@@ -111,14 +121,17 @@ def get_hour_menu():
 
 
 def get_minute_menu():
+    current_minute = datetime.now().minute
+
     keyboard = InlineKeyboardMarkup(row_width=6)
 
-    # Add the minute buttons to the menu
-    for minute in range(0, 60):
+    # Add the minute buttons to the menu starting from the current minute
+    for minute in range(current_minute, 60):
         button = InlineKeyboardButton(text=str(minute), callback_data=f'minute:{minute}')
         keyboard.insert(button)
 
     return keyboard
+
 
 
 @dp.callback_query_handler(lambda c: c.data.startswith('month:'), state=Remindify.REMINDER_TEXT)
@@ -130,8 +143,12 @@ async def set_month(callback_query: types.CallbackQuery, state: FSMContext):
 
     await bot.answer_callback_query(callback_query.id, f'Selected month: {calendar.month_name[month]}')
 
-    # Get the selected month and display the day menu
-    await bot.send_message(callback_query.from_user.id, 'Please select the ' + fmt.hbold("day🗓️:"), reply_markup=get_day_menu())
+    if month == datetime.now().month:
+        # Get the selected month and display the day menu starting from the current day
+        await bot.send_message(callback_query.from_user.id, 'Please select the ' + fmt.hbold("day🗓️:"), reply_markup=get_day_menu(month))
+    else:
+        # Get the selected month and display the day menu for the entire month
+        await bot.send_message(callback_query.from_user.id, 'Please select the ' + fmt.hbold("day🗓️:"), reply_markup=get_day_menu(month))
 
     # Update the original message to remove the month menu
     await callback_query.message.edit_reply_markup()
@@ -193,9 +210,12 @@ async def set_minute(callback_query: types.CallbackQuery, state: FSMContext):
     db.session.commit()
 
     time_difference = (reminder_date - datetime.now()).total_seconds()
+    reminder_time = reminder_date.strftime('%d.%m.%Y %H:%M')
 
     await schedule_reminder_job(data['user_id'], reminder_text, time_difference)
-    await bot.send_message(callback_query.from_user.id, 'Reminder created successfully ✔️')
+    await bot.send_message(callback_query.from_user.id, f'Reminder created successfully ✔️\n\n'
+                                                        f'Reminder Time: {reminder_time}')
+
     await state.finish()
     await callback_query.message.delete()
 
@@ -246,7 +266,7 @@ async def schedule_reminder_job(user_id: int, reminder_text: str, time_differenc
 
 
 @dp.message_handler(text="⟡ View reminders 🔎 ⟡")
-async def view_reminders_command(message: types.Message):
+async def view_reminders(message: types.Message):
     user_id = message.from_user.id
     reminders = db.get_user_reminders(user_id)
 
@@ -256,14 +276,29 @@ async def view_reminders_command(message: types.Message):
         keyboard = types.InlineKeyboardMarkup()
         for reminder in reminders:
             button_text = f'{reminder.text} ({reminder.date.strftime("%d.%m.%Y %H:%M")})'
-            button = InlineKeyboardButton(text=button_text, callback_data=f'reminder:{reminder.id}')
-            keyboard.add(button)
-        await message.answer(fmt.hbold("You may view reminders and delete by clicking on them"))
-        await message.reply('Here are your reminders🗒:', reply_markup=keyboard)
+            view_button = InlineKeyboardButton(text=button_text, callback_data=f'view_reminder:{reminder.id}')
+            delete_button = InlineKeyboardButton(text='Delete 🗑', callback_data=f'delete_reminder:{reminder.id}')
+            keyboard.add(view_button, delete_button)
+
+        await message.reply('Here are your reminders:', reply_markup=keyboard)
 
 
-@dp.callback_query_handler(lambda c: c.data.startswith('reminder:'))
-async def handle_reminder_callback(callback_query: types.CallbackQuery):
+@dp.callback_query_handler(lambda c: c.data.startswith('view_reminder:'))
+async def handle_view_reminder_callback(callback_query: types.CallbackQuery):
+    reminder_id = int(callback_query.data.split(':')[1])
+
+    reminder = db.get_reminder_by_id(reminder_id)
+
+    if reminder:
+        reminder_text = reminder.text
+        reminder_date = reminder.date.strftime('%d.%m.%Y %H:%M')
+        await callback_query.answer(f'Reminder: {reminder_text}\nDate: {reminder_date}')
+    else:
+        await callback_query.answer('Reminder not found.')
+
+
+@dp.callback_query_handler(lambda c: c.data.startswith('delete_reminder:'))
+async def handle_delete_reminder_callback(callback_query: types.CallbackQuery):
     reminder_id = int(callback_query.data.split(':')[1])
 
     reminder = db.get_reminder_by_id(reminder_id)
@@ -288,8 +323,9 @@ async def handle_reminder_callback(callback_query: types.CallbackQuery):
             keyboard = types.InlineKeyboardMarkup()
             for reminder in reminders:
                 button_text = f'{reminder.text} ({reminder.date.strftime("%d.%m.%Y %H:%M")})'
-                button = InlineKeyboardButton(text=button_text, callback_data=f'reminder:{reminder.id}')
-                keyboard.add(button)
+                view_button = InlineKeyboardButton(text=button_text, callback_data=f'view_reminder:{reminder.id}')
+                delete_button = InlineKeyboardButton(text='Delete', callback_data=f'delete_reminder:{reminder.id}')
+                keyboard.add(view_button, delete_button)
 
             await bot.edit_message_text(
                 chat_id=user_id,
@@ -299,6 +335,7 @@ async def handle_reminder_callback(callback_query: types.CallbackQuery):
             )
     else:
         await callback_query.answer('Reminder not found.')
+
 
 if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True)
