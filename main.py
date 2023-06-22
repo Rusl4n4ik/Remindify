@@ -1,19 +1,21 @@
 import asyncio
 import calendar
 import io
+import re
 import sqlite3
 import aiogram.utils.markdown as fmt
+import pytz
 import db
 import logging
-
-from datetime import datetime
+from pytz import timezone as tz
+from datetime import datetime, timedelta
 from PIL import Image, ImageDraw, ImageFont
 from aiogram import Bot, Dispatcher, executor, types
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher import FSMContext
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from fms import Remindify
-from keyboard import menu, guide_text
+from keyboard import menu, guide_text, timezone_markup
 
 
 API_TOKEN = '6197051771:AAE3dlqsUL2mp5RZ-9nzsT5qqTga1Jqqx5U'
@@ -35,6 +37,40 @@ async def start_handler(message: types.Message):
         await message.answer("Welcome back! Glad to see you back at " + fmt.hbold("Remindify ⏰"), reply_markup=menu)
 
 
+@dp.message_handler(text='⟡ Define timezone ⟡')
+async def define_timezone_handler(message: types.Message):
+    await message.answer('Please select your timezone:', reply_markup=timezone_markup)
+
+
+@dp.callback_query_handler(lambda query: 'GMT' in query.data)
+async def button_handler(query: types.CallbackQuery):
+    selected_timezone = query.data
+    timezone = selected_timezone.split()[-1]
+    timezone = timezone.replace('0', '')
+    timezone = timezone.replace(':', '')
+    if '+' in timezone:
+        timezone = timezone.replace('+', '-')
+    else:
+        timezone = timezone.replace('-', '+')
+        tz_offset = int(timezone.replace(':', ''))
+
+    # Get the current local time
+    local_time = datetime.now()
+
+    # Calculate the target timezone's offset from GMT
+
+    # Convert the local time to the target timezone
+    gmt_time = local_time.astimezone(tz(f'Etc/GMT{timezone}'))
+    # Format the times as strings
+    formatted_local_time = gmt_time.strftime('%Y-%m-%d %H:%M:%S')
+
+    message_text = (
+        f"You have selected the timezone: {selected_timezone}\n"
+        f"Your local time: {formatted_local_time}\n"
+    )
+    await query.message.edit_text(message_text)
+
+
 async def cancel_handler(message: types.Message, state: FSMContext):
     await state.finish()
     await message.answer("Operation canceled.")
@@ -54,9 +90,7 @@ async def add_reminder_command(message: types.Message, state: FSMContext):
         user_id = message.from_user.id
         await message.reply('Enter your reminder text 📲:')
         await Remindify.REMINDER_TEXT.set()
-
         await state.update_data(user_id=user_id)
-
     except Exception as e:
         await message.reply('Error adding the reminder ⚠️')
 
@@ -67,65 +101,46 @@ async def enter_reminder_text(message: types.Message, state: FSMContext):
         data = await state.get_data()  # Retrieve the stored state data
         user_id = data.get('user_id')  # Retrieve the user_id from the state data
         reminder_text = message.text
-
         await message.reply('Please select the ' + fmt.hbold("month🗓️:"), reply_markup=get_month_menu())
-
         await state.update_data(reminder_text=reminder_text)  # Store reminder_text in the state data
-
     except Exception as e:
         await message.reply('Error adding the reminder.')
 
 
 def get_month_menu():
-    current_month = datetime.now().month  # Get the current month
+    current_month = datetime.now().month
     keyboard = InlineKeyboardMarkup(row_width=4)
-
-    # Add the month buttons to the menu up to December
     for month in range(current_month, current_month + 12):
-        month_number = (month - 1) % 12 + 1  # Wrap around to handle months > 12
+        month_number = (month - 1) % 12 + 1
         if month_number <= 12:
             button = InlineKeyboardButton(text=calendar.month_name[month_number], callback_data=f'month:{month_number}')
             keyboard.insert(button)
-
     return keyboard
 
 
 def get_day_menu(selected_month):
     current_month = datetime.now().month
     current_day = datetime.now().day
-
     keyboard = InlineKeyboardMarkup(row_width=7)
-
-    # Determine the maximum number of days for the selected month
     max_days = calendar.monthrange(datetime.now().year, selected_month)[1]
-
-    # Add the day buttons to the menu up to the maximum number of days
     for day in range(current_day, max_days + 1):
         button = InlineKeyboardButton(text=str(day), callback_data=f'day:{day}')
         keyboard.insert(button)
-
     return keyboard
 
 
 def get_hour_menu():
     current_hour = datetime.now().hour
-
     keyboard = InlineKeyboardMarkup(row_width=6)
-
-    # Add the hour buttons to the menu starting from the current hour
     for hour in range(current_hour, 24):
         button = InlineKeyboardButton(text=str(hour), callback_data=f'hour:{hour}')
         keyboard.insert(button)
-
     return keyboard
 
 
 def get_minute_menu():
     current_minute = datetime.now().minute
-
     keyboard = InlineKeyboardMarkup(row_width=6)
-
-    # Add the minute buttons to the menu starting from the current minute
     for minute in range(current_minute, 60):
         button = InlineKeyboardButton(text=str(minute), callback_data=f'minute:{minute}')
         keyboard.insert(button)
@@ -133,24 +148,16 @@ def get_minute_menu():
     return keyboard
 
 
-
 @dp.callback_query_handler(lambda c: c.data.startswith('month:'), state=Remindify.REMINDER_TEXT)
 async def set_month(callback_query: types.CallbackQuery, state: FSMContext):
     month = int(callback_query.data.split(':')[1])
-
     await state.update_data(month=month)
     await Remindify.SET_DAY.set()
-
     await bot.answer_callback_query(callback_query.id, f'Selected month: {calendar.month_name[month]}')
-
     if month == datetime.now().month:
-        # Get the selected month and display the day menu starting from the current day
         await bot.send_message(callback_query.from_user.id, 'Please select the ' + fmt.hbold("day🗓️:"), reply_markup=get_day_menu(month))
     else:
-        # Get the selected month and display the day menu for the entire month
         await bot.send_message(callback_query.from_user.id, 'Please select the ' + fmt.hbold("day🗓️:"), reply_markup=get_day_menu(month))
-
-    # Update the original message to remove the month menu
     await callback_query.message.edit_reply_markup()
     await callback_query.message.delete()
 
@@ -158,16 +165,10 @@ async def set_month(callback_query: types.CallbackQuery, state: FSMContext):
 @dp.callback_query_handler(lambda c: c.data.startswith('day:'), state=Remindify.SET_DAY)
 async def set_day(callback_query: types.CallbackQuery, state: FSMContext):
     day = int(callback_query.data.split(':')[1])
-
     await state.update_data(day=day)
     await Remindify.SET_HOUR.set()
-
     await bot.answer_callback_query(callback_query.id, f'Selected day: {day}')
-
-    # Get the selected day and display the hour menu
     await bot.send_message(callback_query.from_user.id, 'Please select the ' + fmt.hbold("hour⏰:"), reply_markup=get_hour_menu())
-
-    # Update the original message to remove the day menu
     await callback_query.message.edit_reply_markup()
     await callback_query.message.delete()
 
@@ -178,13 +179,8 @@ async def set_hour(callback_query: types.CallbackQuery, state: FSMContext):
 
     await state.update_data(hour=hour)
     await Remindify.SET_MINUTE.set()
-
     await bot.answer_callback_query(callback_query.id, f'Selected hour: {hour}')
-
-    # Get the selected hour and display the minute menu
     await bot.send_message(callback_query.from_user.id, 'Please select the ' + fmt.hbold("minute⏰:"), reply_markup=get_minute_menu())
-
-    # Update the original message to remove the hour menu
     await callback_query.message.edit_reply_markup()
     await callback_query.message.delete()
 
@@ -222,14 +218,14 @@ async def set_minute(callback_query: types.CallbackQuery, state: FSMContext):
 
 async def schedule_reminder_job(user_id: int, reminder_text: str, time_difference: int):
     async def send_reminder():
-        background_image_path = "Remindify (1).png"
+        background_image_path = "media and fonts/Remindify (1).png"
         background_image = Image.open(background_image_path)
         image_width, image_height = background_image.size
 
         max_text_width = int(image_width * 0.8)
         max_text_height = int(image_height * 0.8)
 
-        font_path = "ofont.ru_SonyEricssonLogo.ttf"
+        font_path = "media and fonts/ofont.ru_SonyEricssonLogo.ttf"
         max_font_size = 120
 
 
@@ -317,7 +313,7 @@ async def handle_delete_reminder_callback(callback_query: types.CallbackQuery):
                 chat_id=user_id,
                 message_id=callback_query.message.message_id,
                 text='You have no reminders.',
-                reply_markup=None  # Убрать клавиатуру из сообщения
+                reply_markup=None
             )
         else:
             keyboard = types.InlineKeyboardMarkup()

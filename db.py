@@ -34,6 +34,7 @@ class Users(Base):
     chat_id = Column(Integer)
     first_name = Column(String(100), nullable=True)
     username = Column(String(50), nullable=True)
+    utc = Column(String, nullable=True)
 
 
 def add_user(id, first_name, username):
