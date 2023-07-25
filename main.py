@@ -139,13 +139,23 @@ def get_hour_menu():
 
 
 def get_minute_menu():
-    current_minute = datetime.now().minute
+    current_time = datetime.now()
+    current_hour = current_time.hour
+    current_minute = current_time.minute
+
     keyboard = InlineKeyboardMarkup(row_width=6)
-    for minute in range(current_minute, 60):
+
+    for minute in range(60):
         button = InlineKeyboardButton(text=str(minute), callback_data=f'minute:{minute}')
         keyboard.insert(button)
 
-    return keyboard
+    # Если текущий час выбран, удаляем кнопки с минутами, большими, чем текущая минута
+    if current_hour == current_time.hour:
+        for minute in range(current_minute, 60):
+            button = InlineKeyboardButton(text=str(minute), callback_data=f'minute:{minute}')
+            keyboard.insert(button)
+
+        return keyboard
 
 
 @dp.callback_query_handler(lambda c: c.data.startswith('month:'), state=Remindify.REMINDER_TEXT)
